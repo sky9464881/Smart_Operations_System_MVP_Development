@@ -1,0 +1,71 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: smart-factory-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smart_factory}
+      MYSQL_USER: ${MYSQL_USER:-smart_factory}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-smart_factory}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: smart-factory-mosquitto
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  ai-api:
+    build:
+      context: ./ai-api
+      dockerfile: Dockerfile
+    container_name: smart-factory-ai-api
+    environment:
+      APP_NAME: Smart Factory Vibration AI API
+    ports:
+      - "${AI_API_PORT:-8001}:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smart-factory-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MQTT_VIBRATION_TOPIC: ${MQTT_VIBRATION_TOPIC:-factory/motor/1/vibration/window}
+      MQTT_QOS: ${MQTT_QOS:-1}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./data/raw_windows:/app/data/raw_windows
+    depends_on:
+      - mosquitto
+
+  node-red:
+    image: nodered/node-red:latest
+    container_name: smart-factory-node-red
+    ports:
+      - "${NODE_RED_PORT:-1880}:1880"
+    volumes:
+      - ./node-red:/data
+      - ./data:/project-data:ro
+    depends_on:
+      - mosquitto
+
+volumes:
+  mysql_data:
+  mosquitto_data:
+  mosquitto_log:
